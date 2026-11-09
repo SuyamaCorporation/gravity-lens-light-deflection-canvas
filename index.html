@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>重力レンズ光線屈折ビジュアルキャンバス</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-black text-white min-h-screen flex flex-col items-center p-4">
+<h1 class="text-2xl font-bold mb-1 text-center">🌌 重力レンズ光線屈折</h1>
+<p class="text-gray-400 text-sm mb-3 text-center">クリックで天体を配置・ドラッグで移動 — 光の軌道が曲がる</p>
+<canvas id="c" class="rounded-xl shadow-2xl" style="max-width:100%;cursor:crosshair"></canvas>
+<div class="flex gap-4 mt-4 flex-wrap justify-center">
+  <label class="text-xs text-gray-300 flex flex-col items-center">
+    天体質量
+    <input type="range" id="mass" min="50" max="500" value="200" class="w-32 mt-1">
+    <span id="massVal">200</span>
+  </label>
+  <label class="text-xs text-gray-300 flex flex-col items-center">
+    光線密度
+    <input type="range" id="rayCount" min="20" max="200" value="80" class="w-32 mt-1">
+    <span id="rayCountVal">80</span>
+  </label>
+  <button id="clearBtn" class="bg-gray-800 hover:bg-gray-700 px-4 py-1 rounded text-sm self-end">クリア</button>
+</div>
+<p class="text-xs text-gray-600 mt-2">アインシュタイン環・光弧が形成される質量を試してみてください</p>
+<script>
+const c=document.getElementById('c');
+const ctx=c.getContext('2d');
+let W,H;
+let masses=[];
+let dragging=null;
+
+function resize(){
+  W=c.width=Math.min(window.innerWidth-32,620);
+  H=c.height=Math.round(W*0.65);
+  draw();
+}
+resize();
+window.addEventListener('resize',resize);
+
+// Generate background stars
+const stars=[];
+for(let i=0;i<300;i++) stars.push({x:Math.random(),y:Math.random(),r:Math.random()*1.5+0.3,b:Math.random()});
+
+function getMass(){ return parseInt(document.getElementById('mass').value)*15; }
+function getRayCount(){ return parseInt(document.getElementById('rayCount').value); }
+
+function draw(){
+  ctx.fillStyle='#000005';
+  ctx.fillRect(0,0,W,H);
+
+  // Draw stars
+  for(let s of stars){
+    ctx.beginPath();
+    ctx.arc(s.x*W, s.y*H, s.r, 0, Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${0.3+s.b*0.7})`;
+    ctx.fill();
+  }
+
+  if(masses.length===0) return;
+
+  // Draw lensed light rays from left to right
+  const nRays = getRayCount();
+  for(let i=0;i<nRays;i++){
+    const startY = (i+0.5)/nRays * H;
+    traceRay(0, startY);
+  }
+
+  // Draw masses
+  for(let m of masses){
+    const r=Math.sqrt(m.mass/1000)*8;
+    const grad=ctx.createRadialGradient(m.x,m.y,0,m.x,m.y,r*3);
+    grad.addColorStop(0,'rgba(255,220,100,0.9)');
+    grad.addColorStop(0.3,'rgba(255,120,20,0.6)');
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.arc(m.x,m.y,r*3,0,Math.PI*2);
+    ctx.fillStyle=grad;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(m.x,m.y,r,0,Math.PI*2);
+    ctx.fillStyle='#fffde7';
+    ctx.fill();
+  }
+}
+
+function traceRay(sx, sy){
+  let x=sx, y=sy;
+  let vx=1, vy=0;
+  const dt=2;
+  const steps=Math.ceil(W/dt)+50;
+  ctx.beginPath();
+  ctx.moveTo(x,y);
+
+  for(let i=0;i<steps;i++){
+    // Gravitational deflection
+    for(let m of masses){
+      const dx=m.x-x, dy=m.y-y;
+      const d2=dx*dx+dy*dy;
+      const d=Math.sqrt(d2);
+      if(d<5) break;
+      const force=m.mass/(d2*d)*dt*dt*800;
+      vx+=dx*force;
+      vy+=dy*force;
+    }
+    // Normalize to maintain speed ≈ dt
+    const spd=Math.sqrt(vx*vx+vy*vy);
+    vx=vx/spd*dt;
+    vy=vy/spd*dt;
+    x+=vx; y+=vy;
+    ctx.lineTo(x,y);
+    if(x<-10||x>W+10||y<-10||y>H+10) break;
+  }
+  const hue=(sy/H)*60+180;
+  ctx.strokeStyle=`hsla(${hue},80%,70%,0.4)`;
+  ctx.lineWidth=0.8;
+  ctx.stroke();
+}
+
+// Mouse events
+c.addEventListener('mousedown',e=>{
+  const r=c.getBoundingClientRect();
+  const x=(e.clientX-r.left)*W/r.width;
+  const y=(e.clientY-r.top)*H/r.height;
+  for(let m of masses){
+    if(Math.hypot(m.x-x,m.y-y)<20){ dragging=m; return; }
+  }
+  masses.push({x,y,mass:getMass()});
+  draw();
+});
+c.addEventListener('mousemove',e=>{
+  if(!dragging) return;
+  const r=c.getBoundingClientRect();
+  dragging.x=(e.clientX-r.left)*W/r.width;
+  dragging.y=(e.clientY-r.top)*H/r.height;
+  draw();
+});
+c.addEventListener('mouseup',()=>{ dragging=null; });
+
+document.getElementById('clearBtn').addEventListener('click',()=>{ masses=[]; draw(); });
+document.getElementById('mass').addEventListener('input',e=>{ document.getElementById('massVal').textContent=e.target.value; draw(); });
+document.getElementById('rayCount').addEventListener('input',e=>{ document.getElementById('rayCountVal').textContent=e.target.value; draw(); });
+
+// Add a default mass
+masses.push({x:W*0.5,y:H*0.5,mass:getMass()});
+draw();
+</script>
+</body>
+</html>
